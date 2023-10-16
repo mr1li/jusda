@@ -4,72 +4,94 @@ import os
 import numpy as np
 from datetime import datetime,timedelta
 def buhuo(file1,file2,file3,date,initial_inventory,a1,a2,a3,customer_name,customer_part_no,supplier_name,supplier_part_no,manufacture_name,site_db):
-    df1 = pd.read_csv(file1, encoding='latin1')
+    df_asn = pd.read_csv(file1, encoding='latin1')
     # 读取第二个CSV文件
-    df2 = pd.read_csv(file2, encoding='latin1')
-    # 合并两个DataFrame，根据指定的列进行匹配
-    merged_df = pd.merge(df1, df2, on=["supplier_name", "supplier_part_no", "customer_name", "customer_part_no", "manufacture_name", "site", "site_db", "asn_no"])
-    # 选择需要的列
-    result_df = merged_df[["supplier_name", "supplier_part_no", "customer_name", "customer_part_no", "manufacture_name", "site", "site_db", "asn_no", "quantity1", "asn_create_datetime", "quantity2", "eta"]]
-    sorted_df = result_df.sort_values(by=["supplier_name", "supplier_part_no", "customer_name", "customer_part_no", "manufacture_name", "site", "site_db", "asn_no"])
-    # 保存到新的CSV文件
-    # sorted_df.to_csv('sorted_file.csv', index=False)
-    df= sorted_df[(result_df['customer_name'] == customer_name) & (result_df['customer_part_no'] ==customer_part_no)]
-    #求交付期
-    df['asn_create_datetime'] = pd.to_datetime(df['asn_create_datetime']).dt.date
-    df['eta'] = pd.to_datetime(df['eta']).dt.date
-    df['time_difference'] = (df['eta'] - df['asn_create_datetime']).dt.days
-    average_time_difference = df['time_difference'].mean()
-    lead_time=round(int(average_time_difference))
-    print(lead_time)
-    #求补货频率
-    max_date = df['asn_create_datetime'].max()
-    three_months_ago = max_date - pd.DateOffset(months=3)
-    # 仅保留在最近三个月内的数据
-    df_recent = df[df['asn_create_datetime'] >= three_months_ago]
-    # 计算频率
-    freq = (pd.to_datetime(max_date )-  pd.to_datetime(three_months_ago)).days/len(df_recent)
-    # 计算每一行的'eta'列与'asn_create_datetime'之差的平均值
-    freq=round(freq)
+    df_inbound = pd.read_csv(file2, encoding='latin1')
 
-    name=customer_name + '_' + customer_part_no+'_' +supplier_name + '_'+supplier_part_no + '_'+manufacture_name + '_'+site_db
-    base_name=file3+'//'+'model_'+name
-    forecast_name=base_name+'//'+'forecast_'+name+'.csv'
-    error_name=base_name+'//'+'error_'+name+'.npy'
-    demand_data=pd.read_csv(forecast_name)
-    demand_data=np.array((demand_data['mean']))
+
+    name = customer_name + '_' + customer_part_no + '_' + supplier_name + '_' + supplier_part_no + '_' + manufacture_name + '_' + site_db
+    base_name = file3 + '//' + name
+    forecast_name = base_name + '//' + 'forecast.csv'
+    error_name = base_name + '//' + 'error' + '.npy'
+    demand_data = pd.read_csv(forecast_name)
+    demand_data = np.array((demand_data['mean']))
+
+
+    df_demand = pd.read_csv(forecast_name, encoding='latin1')
+    first_date = df_demand['date'].iloc[0]
+    first_date = pd.to_datetime(first_date)
+
+    df_asn = df_asn[(df_asn['customer_name'] == customer_name) & (df_asn['customer_part_no'] == customer_part_no)]
+    df_inbound = df_inbound[
+        (df_inbound['customer_name'] == customer_name) & (df_inbound['customer_part_no'] == customer_part_no)]
+    df_asn['asn_create_datetime'] = pd.to_datetime(df_asn['asn_create_datetime']).dt.date
+    df_inbound['eta'] = pd.to_datetime(df_inbound['eta']).dt.date
+    # 检查 'asn_create_datetime' 列的数据类型
+    merged_df = pd.merge(df_asn, df_inbound, on='asn_no')
+    merged_df['datetime_diff'] = (merged_df['eta'] - merged_df['asn_create_datetime']).dt.days
+    lead_time = round(merged_df['datetime_diff'].mean())
+    three_months_ago = first_date - pd.DateOffset(months=3)
+    # 仅保留在最近三个月内的数据
+    three_months_ago = pd.to_datetime(three_months_ago)
+    df_asn['asn_create_datetime'] = pd.to_datetime(df_asn['asn_create_datetime'])
+    selected_rows = df_asn[df_asn['asn_create_datetime'].between(three_months_ago, first_date)]
+    grouped = selected_rows.groupby('asn_create_datetime')
+    group_count = len(grouped)
+    # 计算频率
+    freq = round((pd.to_datetime(first_date) - pd.to_datetime(three_months_ago)).days / group_count)
+    # 计算每一行的'eta'列与'asn_create_datetime'之差的平均值
+    print(freq, lead_time)
+
+
 
     error=np.load(error_name)
     demand_data2=error[int(a3*len(error))]*demand_data
     #先算出交付期内的数据
-    daohuo=np.zeros(len(demand_data))
-    xiancun=np.zeros(len(demand_data))
-    buchong=np.zeros(len(demand_data))
-    df['asn_create_datetime'] = pd.to_datetime(df['asn_create_datetime'])
+    daohuo=np.zeros(len(demand_data)+lead_time+freq)
+    xiancun=np.zeros(len(demand_data)+lead_time+freq+1)
+    buchong=np.zeros(len(demand_data)+lead_time+freq)
+    avg_value = np.mean(demand_data2)
+    for k in range(demand_data.shape[0], daohuo.shape[0]):
+        demand_data2[k] = avg_value
+
+    df_asn['asn_create_datetime'] = pd.to_datetime(df_asn['asn_create_datetime'])
 
     today = pd.to_datetime(date)
-    for index, row in df.sort_values(by='asn_create_datetime', ascending=False).iterrows():
+    for index, row in df_asn.sort_values(by='asn_create_datetime', ascending=False).iterrows():
         days_diff = (today - row['asn_create_datetime']).days
-        if days_diff <= lead_time:
-            daohuo[days_diff] = row['quantity1']
+        if days_diff <= lead_time and days_diff>0:
+            daohuo[days_diff] = row['quantity']
 
     xiancun[0]=initial_inventory
     for i in range(lead_time):
-        if i==0:
-            xiancun[i]=xiancun[i]+daohuo[i]-demand_data2[i]
-        else:
-            xiancun[i]=xiancun[i-1]+daohuo[i]-demand_data2[i]
+            xiancun[i+1]=xiancun[i]+daohuo[i]-demand_data2[i]
+    df_inbound['eta'] = pd.to_datetime(df_inbound['eta'])
 
+    # 按日期排序
+    df_inbound = df_inbound.sort_values(by='eta')
+
+    # 计算最近一年的开始日期
+    one_year_ago = df_inbound['eta'].max() - pd.DateOffset(years=1)
+
+    # 选择最近一年的数据
+    recent_data = df_inbound[df_inbound['eta'] >= one_year_ago]
+
+    # 计算 'quantity' 列的 0.95 分位点
+    quantile_95 = recent_data['quantity'].quantile(0.95)
+    secure_level= quantile_95
     #开始补货
-    for i in range(lead_time,len(demand_data)-freq-3):
-        xiancun[i]=xiancun[i-1]-demand_data2[i]
-        if xiancun[i]<=demand_data2[i+1]+demand_data2[i+2]+demand_data2[i+3]:
-            q=0
-            chu=xiancun[i]
-            for i in range(freq+3):
-                q=q+demand_data2[i]
-            xiancun[i]=q
-            buchong[i-lead_time]=q-chu
+    for i in range(lead_time,len(demand_data)-freq):
+        xiancun[i+1]=xiancun[i]-demand_data2[i]
+        if xiancun[i+1]<=secure_level:
+            q = 0
+            chu = xiancun[i + 1]
+            for n in range(i, i + freq):
+                q = q + demand_data2[n]
+            t = q - chu + secure_level
+            t = max(t, zuixiaofahuo) + (zuixiaobaozhuang - (max(t, zuixiaofahuo) % zuixiaobaozhuang))
+            buchong[i - lead_time] = t
+            daohuo[i] = t
+            xiancun[i+1] = t + chu
 
 
 
