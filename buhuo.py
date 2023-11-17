@@ -4,7 +4,7 @@ import numpy as np
 from datetime import datetime,timedelta
 from pre_multi_dimension import predict
 def buhuo(df_asn,df_inbound,df_demand,period,pre_length,inventory,fahuo,baozhuang,filename1 ,filename2,filename3,filename4):
-    df_demand=predict(df_inbound, filename1 ,filename2,filename3,filename4,pre_length=pre_length)
+    df_demand=predict(df_demand, filename1 ,filename2,filename3,filename4,pre_length=pre_length)
     first_date = df_demand['eta'].iloc[0]
     first_date = pd.to_datetime(first_date)
     df_asn['asn_create_datetime'] = pd.to_datetime(df_asn['asn_create_datetime']).dt.date
