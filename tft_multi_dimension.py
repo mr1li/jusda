@@ -12,7 +12,7 @@ from pytorch_forecasting.data import GroupNormalizer
 from pytorch_forecasting.metrics import MAE, SMAPE, PoissonLoss, QuantileLoss
 import pickle
 from pytorch_forecasting.models.temporal_fusion_transformer.tuning import optimize_hyperparameters
-def TFT(data,con_length,pre_length,filename2):
+def TFT(data,mode,con_length,pre_length,filename2):
     #构造数据集：
     # df['eta'] = pd.to_datetime(df['eta'])
     # df['eta'] = df['eta'].dt.floor('D')
@@ -49,6 +49,8 @@ def TFT(data,con_length,pre_length,filename2):
 
     #
     data['quantity'] = data['quantity'].astype(float)
+    data['quantity'] = data['quantity'].replace(0, 1)
+
     # data['7_mean'] = data['7_mean'].astype(float)
     # data['14_mean'] = data['14_mean'].astype(float)
     # data['28_mean'] = data['28_mean'].astype(float)
@@ -67,11 +69,10 @@ def TFT(data,con_length,pre_length,filename2):
     max_encoder_length = con_length
     def filter_by_training_cutoff(group):
         training_cutoff = group["time_idx"].max() - max_prediction_length
-        print(group['quantity'].mean())
-        print(group['quantity'])
         return group[group['time_idx'] <= training_cutoff]
     # 对每个分组应用操作，并使用 concat 将结果拼接成一个新的 DataFrame
     result_df = pd.concat([filter_by_training_cutoff(group) for name, group in data.groupby(['customer_name', 'customer_part_no'])], ignore_index=True)
+
     # 重置索引
     training = TimeSeriesDataSet(
         result_df,
@@ -111,13 +112,16 @@ def TFT(data,con_length,pre_length,filename2):
     validation = TimeSeriesDataSet.from_dataset(training, data, predict=True, stop_randomization=True)
     batch_size = 4 # set this between 32 to 128
     train_dataloader = training.to_dataloader(train=True, batch_size=batch_size, num_workers=0)
-    val_dataloader = validation.to_dataloader(train=False, batch_size=batch_size * 10, num_workers=0)
+    grouped=data.groupby(['customer_name', 'customer_part_no'])
+    val_batch_size=len(grouped)
+    print(val_batch_size)
+    val_dataloader = validation.to_dataloader(train=False, batch_size=val_batch_size, num_workers=0)
     early_stop_callback = EarlyStopping(monitor="val_loss", min_delta=1e-4, patience=200, verbose=False, mode="min")
     lr_logger = LearningRateMonitor()  # log the learning rate
     logger = TensorBoardLogger("lightning_logs")  # logging results to a tensorboard
 
     trainer = pl.Trainer(
-        max_epochs=100,
+        max_epochs=10,
         accelerator="cpu",
         enable_model_summary=True,
         gradient_clip_val=0.1,
@@ -133,7 +137,8 @@ def TFT(data,con_length,pre_length,filename2):
         attention_head_size=3,
         dropout=0.1,
         hidden_continuous_size=8,
-        loss=MultivariateNormalDistributionLoss(rank=pre_length),
+        # loss=MultivariateNormalDistributionLoss(rank=pre_length),
+        loss=NormalDistributionLoss(),
         log_interval=10,  # uncomment for learning rate finder and otherwise, e.g. to 10 for logging every 10 batches
         optimizer="AdamW",
         reduce_on_plateau_patience=4,
@@ -147,20 +152,20 @@ def TFT(data,con_length,pre_length,filename2):
 
     best_model_path = trainer.checkpoint_callback.best_model_path
     best_model = TemporalFusionTransformer.load_from_checkpoint(best_model_path)
-
-    with open(filename2,'wb') as f:
+    name=filename2+'tft'+'_'+mode+'_'+str(con_length)+'_'+str(pre_length)+'.pkl'
+    with open(name,'wb') as f:
         pickle.dump(best_model,f, protocol=pickle.HIGHEST_PROTOCOL)
 
-    # predictions = best_model.predict(val_dataloader, trainer_kwargs=dict(accelerator="cpu"), return_y=True)
-    # MAE()(predictions.output, predictions.y)
-    # raw_predictions = best_model.predict(val_dataloader, mode="raw", return_x=True, trainer_kwargs=dict(accelerator="cpu"))
-    # for idx in range(15):  # plot 10 examples
-    #     best_model.plot_prediction(raw_predictions.x, raw_predictions.output, idx=idx, add_loss_to_title=True)
+    predictions = best_model.predict(val_dataloader, trainer_kwargs=dict(accelerator="cpu"), return_y=True)
+    MAE()(predictions.output, predictions.y)
+    raw_predictions = best_model.predict(val_dataloader, mode="raw", return_x=True, trainer_kwargs=dict(accelerator="cpu"))
+    for idx in range(7):  # plot 10 examples
+        best_model.plot_prediction(raw_predictions.x, raw_predictions.output, idx=idx, add_loss_to_title=True)
 if __name__=='__main__':
-    filename1=r'E:/qqq.csv'
-    con_length=14
-    pre_length=14
+    filename1=r'F:/集中数据1.csv'
+    con_length=8
+    pre_length=4
+    mode='Day'
     data=pd.read_csv(filename1,index_col=0)
-    data['quantity'] = data['quantity'].replace(0, 1)
-    filename2=r'E:/model/tft_14_14_MULTI.pkl'
-    TFT(data,con_length,pre_length,filename2)
+    filename2='E:\\model\\'
+    TFT(data,mode,con_length,pre_length,filename2)
