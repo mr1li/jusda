@@ -10,7 +10,7 @@ import lightning.pytorch as pl
 from lightning.pytorch.callbacks import EarlyStopping, LearningRateMonitor
 import pandas as pd
 
-def NHITS(data,con_length,pre_length,filename2):
+def NHITS(data,mode,con_length,pre_length,filename2):
     # 构造数据集：
     # df['eta'] = pd.to_datetime(df['eta'])
     # df['eta'] = df['eta'].dt.floor('D')
@@ -74,11 +74,14 @@ def NHITS(data,con_length,pre_length,filename2):
     validation = TimeSeriesDataSet.from_dataset(training, data, predict=True, stop_randomization=True)
     batch_size = 4  # set this between 32 to 128
     train_dataloader = training.to_dataloader(train=True, batch_size=batch_size, num_workers=0)
-    val_dataloader = validation.to_dataloader(train=False, batch_size=batch_size * 10, num_workers=0)
+    grouped = data.groupby(['customer_name', 'customer_part_no'])
+    val_batch_size = len(grouped)
+    print(val_batch_size)
+    val_dataloader = validation.to_dataloader(train=False, batch_size=val_batch_size, num_workers=0)
     import tensorboard as tb
     early_stop_callback = EarlyStopping(monitor="val_loss", min_delta=1e-4, patience=200, verbose=False, mode="min")
     trainer = pl.Trainer(
-        max_epochs=100,
+        max_epochs=10,
         accelerator="cpu",
         enable_model_summary=True,
         gradient_clip_val=1.0,
@@ -94,7 +97,7 @@ def NHITS(data,con_length,pre_length,filename2):
         log_val_interval=1,
         weight_decay=1e-2,
         backcast_loss_ratio=0.0,
-        hidden_size=64,
+        hidden_size=32,
         optimizer="AdamW",
         loss=MASE(),
     )
@@ -106,24 +109,21 @@ def NHITS(data,con_length,pre_length,filename2):
 
     best_model_path = trainer.checkpoint_callback.best_model_path
     best_model = NHiTS.load_from_checkpoint(best_model_path)
-    with open(filename2, 'wb') as f:
+    name = filename2 + 'nhits' + '_' + mode + '_' + str(con_length) + '_' + str(pre_length) + '.pkl'
+    with open(name, 'wb') as f:
         pickle.dump(best_model, f, protocol=pickle.HIGHEST_PROTOCOL)
-        # pickle.dump(best_model, f, protocol=pickle.HIGHEST_PROTOCOL)
-    # with open(r"E:/model/tft_14_14.pkl", 'rb') as f:
-    # predictions = best_tft.predict(pre, return_y=True, trainer_kwargs=dict(accelerator="cpu"))
-    # print(predictions.output[0])
-    # pre['quantity'].iloc[-max_prediction_length:]=np.array(predictions.output[0])
 
     predictions = best_model.predict(val_dataloader, trainer_kwargs=dict(accelerator="cpu"), return_y=True)
-    # MAE()(predictions.output, predictions.y)
+
     raw_predictions = best_model.predict(val_dataloader, mode="raw", return_x=True,
                                          trainer_kwargs=dict(accelerator="cpu"))
-    for idx in range(15):  # plot 10 examples
+    for idx in range(val_batch_size):  # plot 10 examples
         best_model.plot_prediction(raw_predictions.x, raw_predictions.output, idx=idx, add_loss_to_title=True)
 if __name__=='__main__':
-    filename1=r'E:/qqq.csv'
-    con_length=14
-    pre_length=14
-    filename2=r'E:/model/nhits_14_14_multi_MASE.pkl'
+    filename1=r'F:/集中数据1.csv'
+    con_length=4
+    pre_length=4
+    mode='Day'
+    filename2='E:\\model\\'
     data = pd.read_csv(filename1, index_col=0)
-    NHITS(data,con_length,pre_length,filename2)
+    NHITS(data,mode,con_length,pre_length,filename2)

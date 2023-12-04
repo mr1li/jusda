@@ -157,7 +157,7 @@ def TFT(data,mode,con_length,pre_length,filename2):
         pickle.dump(best_model,f, protocol=pickle.HIGHEST_PROTOCOL)
 
     predictions = best_model.predict(val_dataloader, trainer_kwargs=dict(accelerator="cpu"), return_y=True)
-    MAE()(predictions.output, predictions.y)
+    print(SMAPE()(predictions.output, predictions.y))
     raw_predictions = best_model.predict(val_dataloader, mode="raw", return_x=True, trainer_kwargs=dict(accelerator="cpu"))
     for idx in range(7):  # plot 10 examples
         best_model.plot_prediction(raw_predictions.x, raw_predictions.output, idx=idx, add_loss_to_title=True)

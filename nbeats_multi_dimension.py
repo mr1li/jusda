@@ -1,6 +1,7 @@
 import os
 import warnings
 warnings.filterwarnings("ignore")
+import numpy as np
 os.chdir("../../..")
 from pytorch_forecasting import Baseline, NBeats, TimeSeriesDataSet
 from pytorch_forecasting.data import NaNLabelEncoder
@@ -10,7 +11,7 @@ from lightning.pytorch.loggers import TensorBoardLogger
 import pickle
 import pandas as pd
 from pytorch_forecasting.metrics import MAE, SMAPE, PoissonLoss, QuantileLoss,MQF2DistributionLoss,MAPE,MASE
-def NBEATS(data,con_length,pre_length,filename2):
+def NBEATS(data,mode,con_length,pre_length,filename2):
     #构造数据集：
     # df['eta'] = pd.to_datetime(df['eta'])
     # df['eta'] = df['eta'].dt.floor('D')
@@ -45,6 +46,8 @@ def NBEATS(data,con_length,pre_length,filename2):
     # new_df.to_csv('qqq.csv')
     ########################
     data['quantity'] = data['quantity'].astype(float)
+    data['quantity'] = data['quantity'].replace(0, 1)
+    data['quantity']=np.log(data['quantity'])
     max_prediction_length =pre_length
     max_encoder_length = con_length
     def filter_by_training_cutoff(group):
@@ -70,13 +73,16 @@ def NBEATS(data,con_length,pre_length,filename2):
     # # create dataloaders for model
     batch_size = 4 # set this between 32 to 128
     train_dataloader = training.to_dataloader(train=True, batch_size=batch_size, num_workers=0)
-    val_dataloader = validation.to_dataloader(train=False, batch_size=batch_size * 10, num_workers=0)
+    grouped = data.groupby(['customer_name', 'customer_part_no'])
+    val_batch_size = len(grouped)
+    print(val_batch_size)
+    val_dataloader = validation.to_dataloader(train=False, batch_size=val_batch_size, num_workers=0)
     early_stop_callback = EarlyStopping(monitor="val_loss", min_delta=1e-4, patience=200, verbose=False, mode="min")
     lr_logger = LearningRateMonitor()  # log the learning rate
     logger = TensorBoardLogger("lightning_logs")  # logging results to a tensorboard
 
     trainer = pl.Trainer(
-        max_epochs=60,
+        max_epochs=50,
         accelerator="auto",
         enable_model_summary=True,
         gradient_clip_val=0.01,
@@ -85,7 +91,7 @@ def NBEATS(data,con_length,pre_length,filename2):
     )
     net = NBeats.from_dataset(
         training,
-        learning_rate=1e-3,
+        learning_rate=0.01,
         log_interval=10,
         log_val_interval=1,
         weight_decay=1e-2,
@@ -100,19 +106,20 @@ def NBEATS(data,con_length,pre_length,filename2):
     )
     best_model_path = trainer.checkpoint_callback.best_model_path
     best_model = NBeats.load_from_checkpoint(best_model_path)
-    with open(filename2,'wb') as f:
+    name=filename2+'nbeats'+'_'+mode+'_'+str(con_length)+'_'+str(pre_length)+'.pkl'
+    with open(name,'wb') as f:
         pickle.dump(best_model,f, protocol=pickle.HIGHEST_PROTOCOL)
-
 
     predictions = best_model.predict(val_dataloader, trainer_kwargs=dict(accelerator="cpu"), return_y=True)
     print(MAE()(predictions.output, predictions.y))
     raw_predictions = best_model.predict(val_dataloader, mode="raw", return_x=True, trainer_kwargs=dict(accelerator="cpu"))
-    for idx in range(15):  # plot 10 examples
+    for idx in range(val_batch_size):  # plot 10 examples
         best_model.plot_prediction(raw_predictions.x, raw_predictions.output, idx=idx, add_loss_to_title=True)
 if __name__=='__main__':
-    filename1=r'E:/qqq.csv'
-    con_length=14
-    pre_length=14
-    filename2=r'E:/model/nbeats_14_14.pkl'
+    filename1=r'F:/集中数据1.csv'
+    con_length=4
+    pre_length=4
+    mode='Day'
+    filename2='E:\\model\\'
     data=pd.read_csv(filename1,index_col=0)
-    NBEATS(data,con_length,pre_length,filename2)
+    NBEATS(data,mode,con_length,pre_length,filename2)

@@ -10,7 +10,7 @@ import pickle
 os.chdir("../../..")
 import pandas as pd
 from pytorch_forecasting.data import NaNLabelEncoder
-def deepar(data, con_length, pre_length, filename2):
+def deepar(data, mode,con_length, pre_length, filename2):
 
     # 构造数据集：
     # df['eta'] = pd.to_datetime(df['eta'])
@@ -74,7 +74,11 @@ def deepar(data, con_length, pre_length, filename2):
     validation = TimeSeriesDataSet.from_dataset(training, data, predict=True, stop_randomization=True)
     batch_size = 4  # set this between 32 to 128
     train_dataloader = training.to_dataloader(train=True, batch_size=batch_size, num_workers=0)
-    val_dataloader = validation.to_dataloader(train=False, batch_size=batch_size * 10, num_workers=0)
+    grouped = data.groupby(['customer_name', 'customer_part_no'])
+    val_batch_size = len(grouped)
+    print(val_batch_size)
+    val_dataloader = validation.to_dataloader(train=False, batch_size=val_batch_size, num_workers=0)
+
     lr_logger = LearningRateMonitor()  # log the learning rate
     logger = TensorBoardLogger("lightning_logs")  # logging results to a tensorboard
     early_stop_callback = EarlyStopping(monitor="val_loss", min_delta=1e-4, patience=500, verbose=False, mode="min")
@@ -89,7 +93,7 @@ def deepar(data, con_length, pre_length, filename2):
     )
     net = DeepAR.from_dataset(
         training,
-        learning_rate=1e-2,
+        learning_rate=0.001,
         log_interval=10,
         log_val_interval=1,
         hidden_size=30,
@@ -104,20 +108,22 @@ def deepar(data, con_length, pre_length, filename2):
     )
     best_model_path = trainer.checkpoint_callback.best_model_path
     best_model = DeepAR.load_from_checkpoint(best_model_path)
-    with open(filename2, 'wb') as f:
+    name = filename2 + 'deepar' + '_' + mode + '_' + str(con_length) + '_' + str(pre_length) + '.pkl'
+    with open(name, 'wb') as f:
         pickle.dump(best_model, f, protocol=pickle.HIGHEST_PROTOCOL)
     prediction_deepar = best_model.predict(val_dataloader, trainer_kwargs=dict(accelerator="cpu"), return_y=True)
     MAE()(prediction_deepar.output, prediction_deepar.y)
     raw_predictions_deepar = best_model.predict(val_dataloader, mode="raw", return_x=True, trainer_kwargs=dict(accelerator="cpu"))
-    for idx in range(18):  # plot 10 examples
+    for idx in range(val_batch_size):  # plot 10 examples
         best_model.plot_prediction(raw_predictions_deepar.x, raw_predictions_deepar.output, idx=idx, add_loss_to_title=True)
     print(prediction_deepar)
 
 if __name__ == '__main__':
-    filename1 = r'E:/qqq.csv'
-    con_length = 14
-    pre_length = 14
-    filename2 = r'E:/model/deepar_14_14_multi_MultivariateNormal.pkl'
+    filename1 = r'F:/集中数据1.csv'
+    con_length = 8
+    pre_length = 4
+    mode = 'Day'
+    filename2 = 'E:\\model\\'
     data = pd.read_csv(filename1, index_col=0)
-    deepar(data, con_length, pre_length, filename2)
+    deepar(data,mode,con_length,pre_length,filename2)
 
