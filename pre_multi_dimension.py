@@ -6,8 +6,8 @@ from processing import make_predict_data
 warnings.filterwarnings("ignore")
 import pickle
 import pandas as pd
-def predict(data,model,mode,con_length,pre_length,save_model_path,sku):
-    name = save_model_path + model + '_' + mode + '_' + str(con_length) + '_' + str(pre_length) + '.pkl'
+def predict(data,model,mode,con_len,pre_len,save_model_path,sku):
+    name = save_model_path + model + '_' + mode + '_' + str(con_len) + '_' + str(pre_len) + '.pkl'
     data['quantity'] = data['quantity'].astype(float)
     print(data)
     with open(name,'rb') as f:
@@ -27,8 +27,6 @@ def predict(data,model,mode,con_length,pre_length,save_model_path,sku):
     i=0
     def sum_by_week(group):
         global  i
-        print(group.iloc[-pre_len:,group.columns.get_loc('quantity')])
-        print(pre[:,i])
         group.iloc[-pre_len:,group.columns.get_loc('quantity')]=pre[:,i]
         i=i+1
         return group
