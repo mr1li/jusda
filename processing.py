@@ -1,6 +1,7 @@
 import  pandas as pd
 import numpy as np
-def make_traindata(df,mode,sku,length):
+def make_traindata(df,mode,sku,pre_len,con_len):
+    length=con_len+pre_len
     "length代表至少需要多少数据"
     df['eta']=pd.to_datetime(df['eta'])
     grouped = df.groupby(sku)
