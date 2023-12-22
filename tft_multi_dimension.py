@@ -1,6 +1,8 @@
 import os
 import warnings
 warnings.filterwarnings("ignore")
+import matplotlib.pyplot as plt
+import numpy as np
 os.chdir("../../..")
 import lightning.pytorch as pl
 from lightning.pytorch.callbacks import EarlyStopping, LearningRateMonitor
@@ -12,7 +14,7 @@ from pytorch_forecasting.data import GroupNormalizer
 from pytorch_forecasting.metrics import MAE, SMAPE, PoissonLoss, QuantileLoss
 import pickle
 from pytorch_forecasting.models.temporal_fusion_transformer.tuning import optimize_hyperparameters
-def TFT(data,mode,con_length,pre_length,filename2):
+def TFT(data,mode,sku,con_length,pre_length,filename2,l):
     #构造数据集：
     # df['eta'] = pd.to_datetime(df['eta'])
     # df['eta'] = df['eta'].dt.floor('D')
@@ -49,59 +51,31 @@ def TFT(data,mode,con_length,pre_length,filename2):
 
     #
     data['quantity'] = data['quantity'].astype(float)
+
     data['quantity'] = data['quantity'].replace(0, 1)
 
-    # data['7_mean'] = data['7_mean'].astype(float)
-    # data['14_mean'] = data['14_mean'].astype(float)
-    # data['28_mean'] = data['28_mean'].astype(float)
-    # data['4_max'] = data['4_max'].astype(float)
-    # data['4_min'] = data['4_min'].astype(float)
-    # data['lag'] = data['lag'].astype(float)
-    # data['2_mean'] = data['2_mean'].astype(float)
-    # data['3_mean'] = data['3_mean'].astype(float)
-    # data['4_mean'] = data['4_mean'].astype(float)
-    # data['5_mean'] = data['5_mean'].astype(float)
-    # data['2_min'] = data['2_min'].astype(float)
-    # data['2_max'] = data['2_max'].astype(float)
-    # data['7_min'] = data['7_min'].astype(float)
-    # data['7_max'] = data['7_max'].astype(float)
     max_prediction_length = pre_length
     max_encoder_length = con_length
     def filter_by_training_cutoff(group):
         training_cutoff = group["time_idx"].max() - max_prediction_length
         return group[group['time_idx'] <= training_cutoff]
     # 对每个分组应用操作，并使用 concat 将结果拼接成一个新的 DataFrame
-    result_df = pd.concat([filter_by_training_cutoff(group) for name, group in data.groupby(['customer_name', 'customer_part_no'])], ignore_index=True)
+    result_df = pd.concat([filter_by_training_cutoff(group) for name, group in data.groupby(sku)], ignore_index=True)
 
     # 重置索引
     training = TimeSeriesDataSet(
         result_df,
         time_idx="time_idx",
         target="quantity",
-        group_ids=['customer_name', 'customer_part_no'],
+        group_ids=sku,
         min_encoder_length=max_encoder_length,  # keep encoder length long (as it is in the validation set)
         max_encoder_length=max_encoder_length,
         min_prediction_length=max_prediction_length,
         max_prediction_length=max_prediction_length,
-        static_categoricals=['customer_name', 'customer_part_no'],
-        # time_varying_unknown_reals=[
-        #     "7_mean",
-        #     "28_mean",
-        #     "14_mean",
-        #     "4_max",
-        #     "4_min",
-        #     "lag",
-        #     '2_mean',
-        #     '3_mean',
-        #     '4_mean',
-        #     '5_mean',
-        #     '2_max',
-        #     '2_min',
-        #     '7_max',
-        #     '7_min',
-        # ],
+        static_categoricals=sku,
+
         target_normalizer=GroupNormalizer(
-            groups=['customer_name', 'customer_part_no'], transformation="softplus"
+            groups=sku, transformation="softplus"
         ),  # use softplus and normalize by group
         add_relative_time_idx=True,
         add_target_scales=True,
@@ -112,7 +86,7 @@ def TFT(data,mode,con_length,pre_length,filename2):
     validation = TimeSeriesDataSet.from_dataset(training, data, predict=True, stop_randomization=True)
     batch_size = 4 # set this between 32 to 128
     train_dataloader = training.to_dataloader(train=True, batch_size=batch_size, num_workers=0)
-    grouped=data.groupby(['customer_name', 'customer_part_no'])
+    grouped=data.groupby(sku)
     val_batch_size=len(grouped)
     print(val_batch_size)
     val_dataloader = validation.to_dataloader(train=False, batch_size=val_batch_size, num_workers=0)
@@ -121,7 +95,7 @@ def TFT(data,mode,con_length,pre_length,filename2):
     logger = TensorBoardLogger("lightning_logs")  # logging results to a tensorboard
 
     trainer = pl.Trainer(
-        max_epochs=10,
+        max_epochs=40,
         accelerator="cpu",
         enable_model_summary=True,
         gradient_clip_val=0.1,
@@ -132,13 +106,14 @@ def TFT(data,mode,con_length,pre_length,filename2):
     )
     tft = TemporalFusionTransformer.from_dataset(
         training,
-        learning_rate=0.001,
+        learning_rate=0.01,
         hidden_size=4,
-        attention_head_size=3,
+        attention_head_size=4,
         dropout=0.1,
         hidden_continuous_size=8,
         # loss=MultivariateNormalDistributionLoss(rank=pre_length),
         loss=NormalDistributionLoss(),
+        # loss=SMAPE(),
         log_interval=10,  # uncomment for learning rate finder and otherwise, e.g. to 10 for logging every 10 batches
         optimizer="AdamW",
         reduce_on_plateau_patience=4,
@@ -156,16 +131,13 @@ def TFT(data,mode,con_length,pre_length,filename2):
     with open(name,'wb') as f:
         pickle.dump(best_model,f, protocol=pickle.HIGHEST_PROTOCOL)
 
-    predictions = best_model.predict(val_dataloader, trainer_kwargs=dict(accelerator="cpu"), return_y=True)
-    print(SMAPE()(predictions.output, predictions.y))
-    raw_predictions = best_model.predict(val_dataloader, mode="raw", return_x=True, trainer_kwargs=dict(accelerator="cpu"))
-    for idx in range(7):  # plot 10 examples
-        best_model.plot_prediction(raw_predictions.x, raw_predictions.output, idx=idx, add_loss_to_title=True)
+
 if __name__=='__main__':
-    filename1=r'F:/集中数据1.csv'
-    con_length=8
-    pre_length=4
-    mode='Day'
+    filename1=r'F:/day_shaixuan_jinyibu_大于20_0.7_0.7.csv'
+    con_length=14
+    pre_length=14
+    sku=['customer_name', 'customer_part_no']
+    mode='Day'#'Week',’Month'
     data=pd.read_csv(filename1,index_col=0)
     filename2='E:\\model\\'
-    TFT(data,mode,con_length,pre_length,filename2)
+    TFT(data,mode,sku,con_length,pre_length,filename2)
