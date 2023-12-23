@@ -1,7 +1,7 @@
 import  pandas as pd
 import numpy as np
 def make_traindata(df,mode,sku,pre_len,con_len):
-    length=con_len+pre_len
+    length=pre_len
     "length代表至少需要多少数据"
     df['eta']=pd.to_datetime(df['eta'])
     grouped = df.groupby(sku)
@@ -12,7 +12,9 @@ def make_traindata(df,mode,sku,pre_len,con_len):
         group=group.resample('M', on='eta')['quantity'].sum()
         return group
     def sum_by_day(group):
+
         group=group.resample('D', on='eta')['quantity'].sum()
+
         return group
     if mode=='Day':
         df = grouped.apply(sum_by_day).reset_index()
@@ -20,8 +22,71 @@ def make_traindata(df,mode,sku,pre_len,con_len):
         df = grouped.apply(sum_by_month).reset_index()
     if mode=='Week':
         df = grouped.apply(sum_by_week).reset_index()
+
     df['time_idx']=df.groupby(sku).cumcount()
+    print(df)
     df = df.groupby(sku).filter(lambda group: len(group) >= length)
+    print(df)
+    return  df
+def make_yanzheng(df,mode,sku,pre_len,con_len,start,end):
+    length=pre_len
+    "length代表至少需要多少数据"
+    df['eta']=pd.to_datetime(df['eta'])
+    grouped = df.groupby(sku)
+    def sum_by_week(group):
+        group=group.resample('W-Mon', on='eta')['quantity'].sum()
+        return group
+    def sum_by_month(group):
+        group=group.resample('M', on='eta')['quantity'].sum()
+        return group
+    def sum_by_day(group):
+
+        group=group.resample('D', on='eta')['quantity'].sum()
+
+        return group
+    if mode=='Day':
+        df = grouped.apply(sum_by_day).reset_index()
+    if mode=='Month':
+        df = grouped.apply(sum_by_month).reset_index()
+    if mode=='Week':
+        df = grouped.apply(sum_by_week).reset_index()
+    def full(group):
+        date_range = pd.date_range(start=start, end=end, freq='D')
+        new_df = pd.DataFrame({'eta': date_range})
+        # 将原始DataFrame与新DataFrame按照时间列连接起来
+        merged_df = pd.merge(new_df, group, left_on='eta', right_on='eta', how='left')
+        # 将缺失值填充为0
+        merged_df['quantity'] = merged_df['quantity'].fillna(0)
+        merged_df[sku] = group[sku].iloc[0]
+        result_df = merged_df[sku + ['eta', 'quantity']]
+        return result_df
+        # 删除多余的列
+    # print(df)
+    # date_range = pd.date_range(start='2023-01-01', end='2023-01-30', freq='D')
+    # new_df = pd.DataFrame({'时间': date_range})
+    # print(new_df)
+    # # 将原始DataFrame与新DataFrame按照时间列连接起来
+    # merged_df = pd.merge(new_df, df, left_on='时间', right_on='eta', how='left')
+    #
+    # # 将缺失值填充为0
+    # merged_df['quantity'] = merged_df['quantity'].fillna(0)
+    # merged_df[sku]=df[sku]
+    # # 删除多余的列
+    # result_df = merged_df[sku+['时间', 'quantity']]
+    # result_df.to_csv('f:\o0231223.csv')
+    # print(result_df)
+
+
+    print(df)
+    grouped=df.groupby(sku)
+    df = grouped.apply(full).reset_index(drop=True)
+
+
+
+    df['time_idx']=df.groupby(sku).cumcount()
+    print(df)
+    df = df.groupby(sku).filter(lambda group: len(group) >= length)
+    print(df)
     return  df
 
 def make_predict_data(df,mode,sku,pre_len,con_len):
@@ -143,9 +208,12 @@ def make_predict_data(df,mode,sku,pre_len,con_len):
         result_df = result_df.groupby(sku).filter(lambda group: len(group) >= con_len)
         return result_df
 if __name__=='__main__':
-    filename1 = r'F:\test_pre_data.csv'  # outbound文件
+    filename1 = r'E:\pre_data_20231223.csv'  # outbound文件
     df = pd.read_csv(filename1)
-    mode='Month'#'Day' 'Week' 'Month'
-    sku=['customer_name', 'customer_part_no']
-    df=make_predict_data(df,mode,sku,4,2)
-    df.to_csv('f:\\after.csv')
+    mode='Day'#'Day' 'Week' 'Month'
+    # sku=['customer_name', 'customer_part_no','supplier_name',	'supplier_part_no','manufacture_name',	'site_db']
+    sku = ['customer_name', 'customer_part_no']
+    start='2022-10-01'
+    end='2022-11-07'
+    df=make_yanzheng(df,mode,sku,14,14,start,end)
+    df.to_csv('f:\\yuceshiyan.csv')
