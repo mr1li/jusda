@@ -1,6 +1,7 @@
 import os
 import warnings
 import torch
+from datetime import datetime, timedelta
 import numpy as np
 from pytorch_forecasting.data import GroupNormalizer
 from pytorch_forecasting import Baseline, TemporalFusionTransformer, TimeSeriesDataSet
@@ -8,7 +9,7 @@ from processing import make_predict_data,make_traindata,make_yanzheng
 warnings.filterwarnings("ignore")
 import pickle
 import pandas as pd
-def predict(data,model,mode,con_len,pre_len,save_model_path,sku,yanzheng):
+def predict(data,model,mode,con_len,pre_len,save_model_path,sku,yanzheng,end):
     if yanzheng==True:
         name = save_model_path + model + '_' + mode + '_' + str(con_len) + '_' + str(pre_len) + '.pkl'
         name2=save_model_path + model + '_' + mode + '_' + str(con_len) + '_' + str(pre_len) + '_smape'+'.csv'
@@ -65,7 +66,7 @@ def predict(data,model,mode,con_len,pre_len,save_model_path,sku,yanzheng):
 
 
         print(data)
-        predictions = pre_model.predict(val_dataloader, trainer_kwargs=dict(accelerator="cpu"), return_y=True)
+        predictions = pre_model.predict(val_dataloader,  return_y=True,return_index = True)
         pre = np.array(predictions.output)
         print(pre)
         real = np.array(predictions.y[0])
@@ -77,11 +78,27 @@ def predict(data,model,mode,con_len,pre_len,save_model_path,sku,yanzheng):
         for k in range(len(pre)):
             a = np.mean(2 * abs(pre[k] - real[k]) / (pre[k] + real[k]))
             smape.append(a)
-        print(smape)
-        df = pd.DataFrame(smape)
+
+        df=predictions.index
+        grouped=df.groupby(sku)
+        global t
+        t=0
+        def pinjie(group,pre,end,smape):
+            global t
+            print(pre[t])
+            group = group.loc[group.index.repeat(len(pre[0]))].reset_index(drop=True)
+            group['pre']=pre[t]
+            group['real'] = real[t]
+            group['smape']=smape[t]
+            end=pd.to_datetime(end)
+            group['eta']=[end - timedelta(days=7*(len(pre[0])-i)) for i in range(len(pre[0]))]
+            print(group)
+            t=t+1
+            return group
+        df=grouped.apply(lambda x: pinjie(x, pre,end,smape))
         # 存储为 CSV 文件
         df.to_csv(name2, index=False)
-        return val_dataloader
+        return predictions
 
     else:
         name = save_model_path + model + '_' + mode + '_' + str(con_len) + '_' + str(pre_len) + '.pkl'
@@ -164,6 +181,7 @@ if __name__=='__main__':
     start = '2022-8-01'
     end = '2022-11-07'
     data = make_yanzheng(data, mode, sku, 14, 14, start, end)
-
+    # global t
+    # t=0
     data.to_csv(r'F:/pre_data.csv')
-    f=pre_data=predict(data,model,mode,con_len,pre_len,save_model_path,sku,yanzheng)
+    f=pre_data=predict(data,model,mode,con_len,pre_len,save_model_path,sku,yanzheng,end)
