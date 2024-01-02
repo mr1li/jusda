@@ -65,15 +65,34 @@ def predict(data,model,mode,con_len,pre_len,save_model_path,sku,yanzheng,end):
 
 
 
-        print(data)
+
+        core_df=val_dataloader.dataset.index
+        print(len(core_df))
+        con_matrix=np.zeros((len(core_df),int(core_df['sequence_length'].iloc[0]/2)))
+
+        for n in range(len(core_df)):
+            con_matrix[n,:]=data['quantity'].iloc[core_df['index_start'].iloc[n]:core_df['index_end'].iloc[n]-13]
+        con_matrix = con_matrix.reshape(len(con_matrix), int(len(con_matrix[0]) / 7), 7).sum(axis=2)
+        print(con_matrix)
+
         predictions = pre_model.predict(val_dataloader,  return_y=True,return_index = True)
         pre = np.array(predictions.output)
-        print(pre)
+
         real = np.array(predictions.y[0])
-        print(real)
+
         real = real.reshape(len(pre), int(len(pre[0])/7), 7).sum(axis=2)
         pre = pre.reshape(len(real),int(len(pre[0])/7), 7).sum(axis=2)
+        for n in range(len(pre)):
+            for m in range(len(pre[0])):
+                # pre[n, m]=int(pre[n,m])
+                ave=(con_matrix[n, m] + con_matrix[n, 1 - m])/2
+                pre[n, m] = (pre[n, m]+ con_matrix[n, m] + con_matrix[n, 1 - m]) / 3
+                if pre[n,m]>1.1*ave and con_matrix[n,m]!=0 :
+                    pre[n,m]=ave*(1+(pre[n,m]-ave)/pre[n,m])
+                if pre[n,m]<0.9*ave :
+                    pre[n,m]=ave*(1-(-pre[n,m]+ave)/pre[n,m])
 
+        print(len(pre))
         smape= []
         for k in range(len(pre)):
             a = np.mean(2 * abs(pre[k] - real[k]) / (pre[k] + real[k]))
@@ -85,20 +104,20 @@ def predict(data,model,mode,con_len,pre_len,save_model_path,sku,yanzheng,end):
         t=0
         def pinjie(group,pre,end,smape):
             global t
-            print(pre[t])
+
             group = group.loc[group.index.repeat(len(pre[0]))].reset_index(drop=True)
             group['pre']=pre[t]
             group['real'] = real[t]
             group['smape']=smape[t]
             end=pd.to_datetime(end)
             group['eta']=[end - timedelta(days=7*(len(pre[0])-i)) for i in range(len(pre[0]))]
-            print(group)
+
             t=t+1
             return group
         df=grouped.apply(lambda x: pinjie(x, pre,end,smape))
         # 存储为 CSV 文件
         df.to_csv(name2, index=False)
-        return predictions
+        return core_df
 
     else:
         name = save_model_path + model + '_' + mode + '_' + str(con_len) + '_' + str(pre_len) + '.pkl'
@@ -168,7 +187,7 @@ def predict(data,model,mode,con_len,pre_len,save_model_path,sku,yanzheng,end):
         selected_columns = [ 'eta']+sku+[ 'quantity','time_idx']
         # # 创建一个新的DataFrame，只包含选定的列
         new_data = data[selected_columns]
-        return new_data
+
 if __name__=='__main__':
     mode='Day'
     con_len=14
@@ -177,11 +196,10 @@ if __name__=='__main__':
     yanzheng=True
     save_model_path='E:\\model\\'
     sku=['customer_name', 'customer_part_no']
-    data=pd.read_csv(r'F:/pre_0.7_0.7.csv')
+    data=pd.read_csv('f:\\day_shaixuan_jinyibu_大于20_0.7_0.7.csv')
     start = '2022-8-01'
     end = '2022-11-07'
-    data = make_yanzheng(data, mode, sku, 14, 14, start, end)
-    # global t
-    # t=0
-    data.to_csv(r'F:/pre_data.csv')
+    # data = make_yanzheng(data, mode, sku, 14, 14, start, end)
+    global t
+    t=0
     f=pre_data=predict(data,model,mode,con_len,pre_len,save_model_path,sku,yanzheng,end)
