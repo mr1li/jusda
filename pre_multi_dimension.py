@@ -6,13 +6,14 @@ import numpy as np
 from pytorch_forecasting.data import GroupNormalizer
 from pytorch_forecasting import Baseline, TemporalFusionTransformer, TimeSeriesDataSet
 from processing import make_predict_data,make_traindata,make_yanzheng
+import matplotlib.pyplot as plt
 warnings.filterwarnings("ignore")
 import pickle
 import pandas as pd
 def predict(data,model,mode,con_len,pre_len,save_model_path,sku,yanzheng,end):
     if yanzheng==True:
-        name = save_model_path + model + '_' + mode + '_' + str(con_len) + '_' + str(pre_len) + '.pkl'
-        name2=save_model_path + model + '_' + mode + '_' + str(con_len) + '_' + str(pre_len) + '_smape'+'.csv'
+        name = save_model_path + model + '_' + mode + '_' + str(con_len) + '_' + str(pre_len) + '2_0.pkl'
+        name2=save_model_path + model + '_' + mode + '_' + str(con_len) + '_' + str(pre_len) + '2_1_1_smape'+'.csv'
         data['quantity'] = data['quantity'].astype(float)
 
         # def shai(group):
@@ -76,12 +77,12 @@ def predict(data,model,mode,con_len,pre_len,save_model_path,sku,yanzheng,end):
         print(con_matrix)
 
         predictions = pre_model.predict(val_dataloader,  return_y=True,return_index = True)
-        pre = np.array(predictions.output)
+        pre1 = np.array(predictions.output)
 
-        real = np.array(predictions.y[0])
+        real1 = np.array(predictions.y[0])
 
-        real = real.reshape(len(pre), int(len(pre[0])/7), 7).sum(axis=2)
-        pre = pre.reshape(len(real),int(len(pre[0])/7), 7).sum(axis=2)
+        real = real1.reshape(len(pre1), int(len(pre1[0])/7), 7).sum(axis=2)
+        pre = pre1.reshape(len(real),int(len(pre1[0])/7), 7).sum(axis=2)
         for n in range(len(pre)):
             for m in range(len(pre[0])):
                 # pre[n, m]=int(pre[n,m])
@@ -117,7 +118,7 @@ def predict(data,model,mode,con_len,pre_len,save_model_path,sku,yanzheng,end):
         df=grouped.apply(lambda x: pinjie(x, pre,end,smape))
         # 存储为 CSV 文件
         df.to_csv(name2, index=False)
-        return core_df
+        return df
 
     else:
         name = save_model_path + model + '_' + mode + '_' + str(con_len) + '_' + str(pre_len) + '.pkl'
