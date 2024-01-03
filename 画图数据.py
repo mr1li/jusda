@@ -83,26 +83,23 @@ def predict(data,model,mode,con_len,pre_len,save_model_path,sku,yanzheng,end):
 
         real = real1.reshape(len(pre1), int(len(pre1[0])/7), 7).sum(axis=2)
         pre = pre1.reshape(len(real),int(len(pre1[0])/7), 7).sum(axis=2)
-        for n in range(len(pre)):
-            for m in range(len(pre[0])):
-                # pre[n, m]=int(pre[n,m])
-                ave=(con_matrix[n, m] + con_matrix[n, 1 - m])/2
-                pre[n, m] = (pre[n, m]+ con_matrix[n, m] + con_matrix[n, 1 - m]) / 3
-                if pre[n,m]>1.1*ave and con_matrix[n,m]!=0 :
-                    pre[n,m]=ave*(1+(pre[n,m]-ave)/pre[n,m])
-                if pre[n,m]<0.9*ave :
-                    pre[n,m]=ave*(1-(-pre[n,m]+ave)/pre[n,m])
+        # for n in range(len(pre)):
+        #     for m in range(len(pre[0])):
+        #         # pre[n, m]=int(pre[n,m])
+        #         ave=(con_matrix[n, m] + con_matrix[n, 1 - m])/2
+        #         pre[n, m] = (pre[n, m]+ con_matrix[n, m] + con_matrix[n, 1 - m]) / 3
+        #         if pre[n,m]>1.1*ave and con_matrix[n,m]!=0 :
+        #             pre[n,m]=ave*(1+(pre[n,m]-ave)/pre[n,m])
+        #         if pre[n,m]<0.9*ave :
+        #             pre[n,m]=ave*(1-(-pre[n,m]+ave)/pre[n,m])
 
         print(len(pre))
         smape= []
         image=[]
         for k in range(len(pre)):
             a = np.mean(2 * abs(pre[k] - real[k]) / (pre[k] + real[k]))
-            if a <0.5 and a>0.49:
-                image.append(k)
-                plt.figure()
-                plt.plot(pre1[k])
-                plt.plot(real1[k])
+            # plt.plot(, label='Data 1')
+            # plt.plot(np.concatenate([np.full(len(data1) - len(data2), np.nan), data2]), label='Data 2')
             smape.append(a)
 
         df=predictions.index
